@@ -140,7 +140,6 @@ pub fn spawn_pad(mut commands: Commands, windows: ResMut<Windows>) {
     let window_width = primary_window.width();
     let window_height = primary_window.height();
 
-    // 10% left or right side of the screen
     let pad_x_margin = window_width / 100.0 * Pad::HORIZONTAL_MARGIN;
 
     let pad_height = window_height / 100.0 * Pad::HEIGHT;
@@ -215,18 +214,6 @@ fn spawn_ball(
         })
         .insert(Ball)
         .insert(initial_ball_velocity);
-
-    // commands
-    //     .spawn_bundle(SpriteBundle {
-    //         sprite: Sprite {
-    //             custom_size: Some(Vec2::new(ball_size, ball_size)),
-    //             color: Color::WHITE,
-    //             ..default()
-    //         },
-    //         ..default()
-    //     })
-    //     .insert(Ball)
-    //     .insert(initial_ball_velocity);
 }
 
 fn pad_movement_system(
@@ -296,7 +283,7 @@ fn collision_system(
     let wall_size = Vec2::new(window_width, wall_height);
 
     if let Ok((ball_transform, ball_velocity)) = ball_query.get_single_mut() {
-        // These next 3 lines are for rust_analyzer type hints
+        // These next 2 lines are for rust_analyzer type hints
         let ball_transform: &Transform = ball_transform;
         let mut ball_velocity: Mut<Velocity> = ball_velocity;
 
