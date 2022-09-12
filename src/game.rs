@@ -8,6 +8,7 @@ use bevy::{
     },
     time::FixedTimestep,
 };
+use rand::random;
 
 use crate::GameState;
 
@@ -29,37 +30,41 @@ pub struct Pad;
 #[derive(Component)]
 pub struct Collider;
 
+/// Combines distance and an angle for movement
+#[derive(Component)]
+#[derive(Debug)]
+#[derive(Clone, Copy)]
+pub struct Velocity(Vec2);
+
 // In % of screen height
 const WALL_THICKNESS: f32 = 3.0;
 
 impl Pad {
-    // in % of the screen width
+    /// Width of a pad in % of screen width
     const WIDTH: f32 = 1.0;
-    // in % of the screen height
+
+    /// Height of a pad in % of screen height
     const HEIGHT: f32 = 20.0;
+
+    /// Starting Y position for a pad
     const DEFAUT_LEVEL: f32 = 0.0;
-    // in % of the screen width
+
+    /// Distance between left screen borded and center of the left pad
+    /// and right screen border and center of the right pad
     const HORIZONTAL_MARGIN: f32 = 10.0;
+
+    /// Distance vector length in % of the screen height
     const SPEED: f32 = 2.0;
 }
 
 #[derive(Component)]
-pub struct Ball {
-    angle: Vec2,
-}
-
-impl Default for Ball {
-    fn default() -> Self {
-        Self {
-            angle: Vec2::from_angle(PI * rand::random::<f32>()),
-        }
-    }
-}
+pub struct Ball;
 
 impl Ball {
+    /// Distance vector lenght in % of the screen width
     const SPEED: f32 = 1.25;
 
-    // In % of screen width
+    /// Ball width and height in % of the screen width
     const SIZE: f32 = 2.0;
 }
 
@@ -82,7 +87,8 @@ impl Plugin for GamePlugin {
                 .with_run_criteria(FixedTimestep::step(1.0 / 60.0))
                 .with_system(pad_movement_system)
                 .with_system(ball_movement_system)
-                .with_system(collision_system.after(ball_movement_system)),
+                .with_system(collision_system.after(ball_movement_system))
+                .with_system(goal_system),
         );
         app.add_system_set(
             SystemSet::on_exit(GameState::Play)
@@ -154,8 +160,7 @@ pub fn spawn_pad(mut commands: Commands, windows: ResMut<Windows>) {
             ..default()
         })
         .insert(Player::Left)
-        .insert(Pad)
-        .insert(Collider);
+        .insert(Pad);
 
     commands
         .spawn_bundle(SpriteBundle {
@@ -183,6 +188,15 @@ fn spawn_ball(mut commands: Commands, windows: ResMut<Windows>) {
 
     let ball_size = window_width / 100.0 * Ball::SIZE;
 
+    let random_angle = PI * random::<f32>();
+
+    let ball_scalar_speed = window_width / 100.0 * Ball::SPEED;
+
+    let angle_vector = Vec2::from_angle(random_angle);
+    let distance_vector = Vec2::new(ball_scalar_speed, 0.0);
+
+    let initial_ball_velocity = Velocity(angle_vector.rotate(distance_vector));
+
     commands
         .spawn_bundle(SpriteBundle {
             sprite: Sprite {
@@ -192,7 +206,8 @@ fn spawn_ball(mut commands: Commands, windows: ResMut<Windows>) {
             },
             ..default()
         })
-        .insert(Ball::default());
+        .insert(Ball)
+        .insert(initial_ball_velocity);
 }
 
 fn pad_movement_system(
@@ -237,27 +252,15 @@ fn pad_movement_system(
     }
 }
 
-fn ball_movement_system(mut ball_query: Query<(&Ball, &mut Transform)>, windows: Res<Windows>) {
-    let primary_window = windows.get_primary().expect("Faile to get primary window");
-
-    let window_height = primary_window.height();
-    let window_width = primary_window.width();
-
-    let x_movement = window_width / 100.0 * Ball::SPEED;
-    let y_movement = window_height / 100.0 * Ball::SPEED;
-
-    if let Ok((ball, mut transform)) = ball_query.get_single_mut() {
-        let ball: &Ball = ball;
-
-        let movement_vector = ball.angle * Vec2::new(x_movement, y_movement);
-
-        transform.translation += movement_vector.extend(0.0);
+fn ball_movement_system(mut ball_query: Query<(&mut Transform, &Velocity), With<Ball>>) {
+    if let Ok((mut transform, velocity)) = ball_query.get_single_mut() {
+        transform.translation += velocity.0.extend(0.0);
     }
 }
 
 fn collision_system(
-    mut ball_query: Query<(&mut Ball, &mut Transform, &Sprite), Without<Collider>>,
-    pad_query: Query<(&Transform, &Sprite), With<Collider>>,
+    mut ball_query: Query<(&Transform, &Sprite, &mut Velocity), With<Ball>>,
+    pad_query: Query<(&Transform, &Sprite), With<Pad>>,
     windows: Res<Windows>,
 ) {
     let primary_window = windows.get_primary().expect("Failed to get primary window");
@@ -273,14 +276,11 @@ fn collision_system(
     let bottom_wall_center = Vec2::new(0.0, bottom_wall_y).extend(0.0);
     let wall_size = Vec2::new(window_width, wall_height);
 
-    let left_border = Vec2::new(-(window_width / 2.0), 0.0).extend(0.0);
-    let right_border = Vec2::new(window_width / 2.0, 0.0).extend(0.0);
-    let border_size = Vec2::new(1.0, window_height);
-
-    if let Ok((ball, ball_transform, ball_sprite)) = ball_query.get_single_mut() {
-        let mut ball: Mut<Ball> = ball;
-        let mut ball_transform: Mut<Transform> = ball_transform;
+    if let Ok((ball_transform, ball_sprite, ball_velocity)) = ball_query.get_single_mut() {
+        // These next 3 lines are for rust_analyzer type hints
+        let ball_transform: &Transform = ball_transform;
         let ball_sprite: &Sprite = ball_sprite;
+        let mut ball_velocity: Mut<Velocity> = ball_velocity;
 
         let ball_size = ball_sprite.custom_size.expect("WTF ball doesn't have size");
 
@@ -299,29 +299,9 @@ fn collision_system(
         );
 
         if top_wall_collision.is_some() || bottom_wall_collision.is_some() {
-            ball.angle.y = -ball.angle.y;
-            info!("{:?}", ball.angle);
+            ball_velocity.0.y = -ball_velocity.0.y;
+            info!("{:?}", ball_velocity);
         }
-
-        let left_border_collision = collide(
-            ball_transform.translation,
-            ball_size,
-            left_border,
-            border_size,
-        );
-
-        let right_border_collision = collide(
-            ball_transform.translation,
-            ball_size,
-            right_border,
-            border_size,
-        );
-
-        if left_border_collision.is_some() || right_border_collision.is_some() {
-            *ball.as_mut() = Ball::default();
-            ball_transform.translation = Vec2::splat(0.0).extend(0.0);
-        }
-
 
         for (pad_transform, pad_sprite) in pad_query.iter() {
             let pad_transform: &Transform = pad_transform;
@@ -337,9 +317,40 @@ fn collision_system(
             );
 
             match collision {
-                Some(Collision::Left) | Some(Collision::Right) => ball.angle.x = -ball.angle.x,
+                Some(Collision::Left) | Some(Collision::Right) =>
+                    ball_velocity.0.x = -ball_velocity.0.x,
+                Some(Collision::Top | Collision::Bottom) => ball_velocity.0.y = -ball_velocity.0.y,
                 _ => (),
             };
+        }
+    }
+}
+
+fn goal_system(
+    mut ball_query: Query<(&mut Transform, &mut Velocity), With<Ball>>,
+    windows: Res<Windows>,
+) {
+    let window_width = windows
+        .get_primary()
+        .expect("Failed to get primary window")
+        .width();
+    let half_width = window_width / 2.0;
+
+    let left_most_x = -half_width;
+    let right_most_x = half_width;
+
+    if let Ok((mut ball_transform, mut ball_velocity)) = ball_query.get_single_mut() {
+        let ball_x = ball_transform.translation.x;
+
+        if ball_x < left_most_x || ball_x > right_most_x {
+            ball_transform.translation = Vec3::splat(0.0);
+
+            let random_angle = PI * random::<f32>();
+            let angle_vector = Vec2::from_angle(random_angle);
+            let distance_vector = Vec2::new(window_width / 100.0 * Ball::SPEED, 0.0);
+            let new_ball_velocity = Velocity(angle_vector.rotate(distance_vector));
+
+            *ball_velocity = new_ball_velocity;
         }
     }
 }
