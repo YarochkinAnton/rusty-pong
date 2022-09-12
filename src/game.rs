@@ -2,9 +2,12 @@ use std::f32::consts::PI;
 
 use bevy::{
     prelude::*,
-    sprite::collide_aabb::{
-        collide,
-        Collision,
+    sprite::{
+        collide_aabb::{
+            collide,
+            Collision,
+        },
+        MaterialMesh2dBundle,
     },
     time::FixedTimestep,
 };
@@ -180,13 +183,19 @@ pub fn spawn_pad(mut commands: Commands, windows: ResMut<Windows>) {
         .insert(Collider);
 }
 
-fn spawn_ball(mut commands: Commands, windows: ResMut<Windows>) {
+fn spawn_ball(
+    mut commands: Commands,
+    windows: Res<Windows>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+) {
     let window_width = windows
         .get_primary()
         .expect("Failed to get primary window")
         .width();
 
     let ball_size = window_width / 100.0 * Ball::SIZE;
+    let ball_radius = ball_size / 2.0;
 
     let random_angle = PI * random::<f32>();
 
@@ -198,16 +207,26 @@ fn spawn_ball(mut commands: Commands, windows: ResMut<Windows>) {
     let initial_ball_velocity = Velocity(angle_vector.rotate(distance_vector));
 
     commands
-        .spawn_bundle(SpriteBundle {
-            sprite: Sprite {
-                custom_size: Some(Vec2::new(ball_size, ball_size)),
-                color: Color::WHITE,
-                ..default()
-            },
+        .spawn_bundle(MaterialMesh2dBundle {
+            mesh: meshes.add(shape::Circle::new(ball_radius).into()).into(),
+            material: materials.add(ColorMaterial::from(Color::WHITE)),
+            transform: Transform::from_translation(Vec3::splat(0.0)),
             ..default()
         })
         .insert(Ball)
         .insert(initial_ball_velocity);
+
+    // commands
+    //     .spawn_bundle(SpriteBundle {
+    //         sprite: Sprite {
+    //             custom_size: Some(Vec2::new(ball_size, ball_size)),
+    //             color: Color::WHITE,
+    //             ..default()
+    //         },
+    //         ..default()
+    //     })
+    //     .insert(Ball)
+    //     .insert(initial_ball_velocity);
 }
 
 fn pad_movement_system(
@@ -259,7 +278,7 @@ fn ball_movement_system(mut ball_query: Query<(&mut Transform, &Velocity), With<
 }
 
 fn collision_system(
-    mut ball_query: Query<(&Transform, &Sprite, &mut Velocity), With<Ball>>,
+    mut ball_query: Query<(&Transform, &mut Velocity), With<Ball>>,
     pad_query: Query<(&Transform, &Sprite), With<Pad>>,
     windows: Res<Windows>,
 ) {
@@ -276,13 +295,12 @@ fn collision_system(
     let bottom_wall_center = Vec2::new(0.0, bottom_wall_y).extend(0.0);
     let wall_size = Vec2::new(window_width, wall_height);
 
-    if let Ok((ball_transform, ball_sprite, ball_velocity)) = ball_query.get_single_mut() {
+    if let Ok((ball_transform, ball_velocity)) = ball_query.get_single_mut() {
         // These next 3 lines are for rust_analyzer type hints
         let ball_transform: &Transform = ball_transform;
-        let ball_sprite: &Sprite = ball_sprite;
         let mut ball_velocity: Mut<Velocity> = ball_velocity;
 
-        let ball_size = ball_sprite.custom_size.expect("WTF ball doesn't have size");
+        let ball_size = Vec2::splat(window_width / 100.0 * Ball::SIZE);
 
         let top_wall_collision = collide(
             ball_transform.translation,
